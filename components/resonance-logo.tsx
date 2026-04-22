@@ -1,0 +1,54 @@
+import React from 'react'
+
+interface ResonanceLogoProps {
+  /** Width of the logo in px. Height is auto-sized at same ratio. */
+  size?: number
+  className?: string
+}
+
+/**
+ * The Resonance "R" mark — a geometric letterform with a teal-to-plum gradient.
+ * Reconstructed as an inline SVG so it is perfectly crisp at any size and
+ * requires no image file dependency.
+ */
+export function ResonanceLogo({ size = 40, className = '' }: ResonanceLogoProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 100 100"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-label="Resonance logo"
+    >
+      <defs>
+        {/* Diagonal gradient: Deep Teal to Matte Black */}
+        <linearGradient id="rLogoGrad" x1="0%" y1="0%" x2="100%" y2="100%" gradientUnits="userSpaceOnUse">
+          <stop offset="0%"   stopColor="#31696B" />
+          <stop offset="50%"  stopColor="#275355" />
+          <stop offset="100%" stopColor="#121212" />
+        </linearGradient>
+      </defs>
+
+      {/* ── Left vertical stem (full height) ──────────────────────── */}
+      <rect x="16" y="14" width="13" height="72" fill="url(#rLogoGrad)" />
+
+      {/* ── Upper bump / bowl of the R (right-pointing chevron shape) */}
+      {/*  Points: left-top, right-top, tip-right, right-bottom, left-bottom  */}
+      <polygon
+        points="29,14 71,14 84,34 71,52 29,52"
+        fill="url(#rLogoGrad)"
+      />
+
+      {/* ── Lower diagonal leg of the R ───────────────────────────── */}
+      {/*  Runs from just below the bump down to the bottom-right      */}
+      <polygon
+        points="29,57 44,57 84,86 70,86 29,68"
+        fill="url(#rLogoGrad)"
+      />
+    </svg>
+  )
+}
+
+export default ResonanceLogo
