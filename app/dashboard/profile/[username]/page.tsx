@@ -12,11 +12,25 @@ import { isDummyFollowing, toggleDummyFollow, getDummyFollows } from '@/lib/dumm
 
 // ── Dummy profile view ──────────────────────────────────────────────────────
 function DummyProfilePage({ account }: { account: DummyAccount }) {
-  const [isFollowing, setIsFollowing] = useState(() => isDummyFollowing(account.username))
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [isFollowing, setIsFollowing] = useState(false)
   const [activeTab, setActiveTab] = useState<'all' | 'music' | 'posts'>('all')
 
+  useEffect(() => {
+    async function loadUser() {
+      const supabase = createClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (user) {
+        setCurrentUser(user)
+        setIsFollowing(isDummyFollowing(account.username, user.id))
+      }
+    }
+    loadUser()
+  }, [account.username])
+
   const handleFollow = () => {
-    const nowFollowing = toggleDummyFollow(account.username)
+    if (!currentUser) return
+    const nowFollowing = toggleDummyFollow(account.username, currentUser.id)
     setIsFollowing(nowFollowing)
   }
 
