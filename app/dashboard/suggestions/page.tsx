@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { Card } from '@/components/ui/card'
-import { Music, Headphones, UserPlus, Check, ArrowLeft, Star } from 'lucide-react'
+import { Music, Headphones, UserPlus, Check, ArrowLeft, Star, Search } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { SearchBar } from '@/components/search-bar'
 import Link from 'next/link'
 import { DUMMY_ACCOUNTS } from '@/lib/dummy-accounts'
 import { isDummyFollowing, toggleDummyFollow } from '@/lib/dummy-follows'
@@ -66,17 +68,22 @@ export default function SuggestionsPage() {
           </p>
         </div>
 
-        {/* Filter Tabs */}
-        <div className="flex gap-3 mb-8">
-          <button className={filterBtnClass('all')} onClick={() => setFilter('all')}>
-            All
-          </button>
-          <button className={filterBtnClass('artist')} onClick={() => setFilter('artist')}>
-            🎵 Artists
-          </button>
-          <button className={filterBtnClass('listener')} onClick={() => setFilter('listener')}>
-            🎧 Listeners
-          </button>
+        {/* Filter Tabs & Search */}
+        <div className="flex flex-col sm:flex-row gap-4 mb-8">
+          <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 sm:pb-0">
+            <button className={filterBtnClass('all')} onClick={() => setFilter('all')}>
+              All
+            </button>
+            <button className={filterBtnClass('artist')} onClick={() => setFilter('artist')}>
+              🎵 Artists
+            </button>
+            <button className={filterBtnClass('listener')} onClick={() => setFilter('listener')}>
+              🎧 Listeners
+            </button>
+          </div>
+          <div className="relative flex-1 w-full max-w-sm md:hidden">
+            <SearchBar />
+          </div>
         </div>
 
         {/* Cards Grid */}

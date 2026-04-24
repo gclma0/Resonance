@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { MapPin, Link as LinkIcon, Music, Users, Camera, Loader2 } from 'lucide-react'
+import { MapPin, Link as LinkIcon, Music, Users, Camera, Loader2, MessageSquare, Headphones } from 'lucide-react'
 import { useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Input } from '@/components/ui/input'
@@ -126,9 +126,9 @@ export function UserProfileCard({
       </div>
 
       {/* Profile Info */}
-      <Card className="p-6 border-border -mt-16 relative z-10">
+      <Card className="p-4 sm:p-6 border-border -mt-12 sm:-mt-16 relative z-10 mx-2 sm:mx-0">
         {/* Avatar */}
-        <div className="flex gap-4 items-start mb-4">
+        <div className="flex flex-col sm:flex-row gap-4 items-start mb-4">
           <div className="relative group">
             <div className="w-24 h-24 rounded-lg bg-muted flex items-center justify-center overflow-hidden border-4 border-background">
               {currentAvatar ? (
@@ -165,16 +165,23 @@ export function UserProfileCard({
               </div>
 
               {!isOwnProfile && (
-                <Button
-                  onClick={onFollow}
-                  className={`${
-                    isFollowing
-                      ? 'bg-muted text-foreground hover:bg-muted/80'
-                      : 'bg-primary text-primary-foreground hover:bg-primary/90'
-                  }`}
-                >
-                  {isFollowing ? 'Following' : 'Follow'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Link href={`/dashboard/messages?user=${username}`}>
+                    <Button variant="outline" className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4" /> Message
+                    </Button>
+                  </Link>
+                  <Button
+                    onClick={onFollow}
+                    className={`${
+                      isFollowing
+                        ? 'bg-muted text-foreground hover:bg-muted/80'
+                        : 'bg-primary text-primary-foreground hover:bg-primary/90'
+                    }`}
+                  >
+                    {isFollowing ? 'Following' : 'Follow'}
+                  </Button>
+                </div>
               )}
 
               {isOwnProfile && (
@@ -184,12 +191,8 @@ export function UserProfileCard({
 
             {/* User Type Badge */}
             <div className="mt-3">
-              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium ${
-                userType === 'artist'
-                  ? 'bg-primary/20 text-primary'
-                  : 'bg-secondary/20 text-secondary'
-              }`}>
-                <Music className="h-4 w-4" />
+              <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm font-medium bg-primary/20 text-primary">
+                {userType === 'artist' ? <Music className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}
                 {userType === 'artist' ? 'Artist' : 'Listener'}
               </span>
             </div>
@@ -204,18 +207,18 @@ export function UserProfileCard({
         )}
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 py-4 border-t border-b border-border my-4">
+        <div className="grid grid-cols-3 gap-2 sm:gap-4 py-4 border-t border-b border-border my-4">
           <Link href={`/dashboard/profile/${username}/followers`} className="hover:bg-muted/50 p-2 rounded-lg transition text-center sm:text-left">
-            <p className="text-2xl font-bold hover:text-primary transition-colors">{followersCount.toLocaleString()}</p>
-            <p className="text-sm text-muted-foreground">Followers</p>
+            <p className="text-xl sm:text-2xl font-bold hover:text-primary transition-colors">{followersCount.toLocaleString()}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Followers</p>
           </Link>
           <Link href={`/dashboard/profile/${username}/following`} className="hover:bg-muted/50 p-2 rounded-lg transition text-center sm:text-left">
-            <p className="text-2xl font-bold hover:text-primary transition-colors">{followingCount.toLocaleString()}</p>
-            <p className="text-sm text-muted-foreground">Following</p>
+            <p className="text-xl sm:text-2xl font-bold hover:text-primary transition-colors">{followingCount.toLocaleString()}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Following</p>
           </Link>
           <div className="p-2 text-center sm:text-left">
-            <p className="text-2xl font-bold">{postsCount.toLocaleString()}</p>
-            <p className="text-sm text-muted-foreground">Posts</p>
+            <p className="text-xl sm:text-2xl font-bold">{postsCount.toLocaleString()}</p>
+            <p className="text-xs sm:text-sm text-muted-foreground">Posts</p>
           </div>
         </div>
 

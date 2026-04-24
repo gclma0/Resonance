@@ -35,6 +35,9 @@ export default function PopularArtistsPage() {
   const [sortBy, setSortBy] = useState<'rating' | 'followers' | 'likes'>('rating')
   const [followed, setFollowed] = useState<Record<string, boolean>>({})
   const [currentUser, setCurrentUser] = useState<any>(null)
+  const [currentPage, setCurrentPage] = useState(1)
+
+  const ITEMS_PER_PAGE = 3
 
   useEffect(() => {
     async function loadUser() {
@@ -66,6 +69,10 @@ export default function PopularArtistsPage() {
     }
   })
 
+  const totalPages = Math.ceil(sortedArtists.length / ITEMS_PER_PAGE)
+  const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
+  const paginatedArtists = sortedArtists.slice(startIndex, startIndex + ITEMS_PER_PAGE)
+
   return (
     <main className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-8 w-full">
       <div className="flex items-center gap-2 mb-8">
@@ -77,7 +84,7 @@ export default function PopularArtistsPage() {
       <div className="mb-8 flex gap-4 overflow-x-auto pb-2">
         {(['rating', 'followers', 'likes'] as const).map(sort => (
           <Button key={sort} variant={sortBy === sort ? 'default' : 'outline'}
-            onClick={() => setSortBy(sort)}
+            onClick={() => { setSortBy(sort); setCurrentPage(1) }}
             className={sortBy === sort ? 'bg-primary' : ''}>
             {sort === 'rating' ? 'Top Rated' : sort === 'followers' ? 'Most Followed' : 'Most Liked'}
           </Button>
@@ -86,7 +93,8 @@ export default function PopularArtistsPage() {
 
       {/* Artists List */}
       <div className="space-y-4">
-        {sortedArtists.map((artist, index) => {
+        {paginatedArtists.map((artist, index) => {
+          const globalIndex = startIndex + index + 1
           const dummy = getDummyAccount(artist.username)
           const liveFollowers = artist.baseFollowers + (followed[artist.id] ? 1 : 0)
           const avatarColor = dummy?.avatar_color ?? 'from-primary to-secondary'
@@ -103,7 +111,7 @@ export default function PopularArtistsPage() {
                       {initials}
                     </div>
                   </Link>
-                  <span className="text-xs font-bold text-muted-foreground">#{index + 1}</span>
+                  <span className="text-xs font-bold text-muted-foreground">#{globalIndex}</span>
                 </div>
 
                 {/* Artist Info */}
@@ -181,13 +189,31 @@ export default function PopularArtistsPage() {
       </div>
 
       {/* Pagination */}
-      <div className="flex items-center justify-center gap-2 mt-8">
-        <Button variant="outline" size="sm">Previous</Button>
-        <Button variant="default" size="sm" className="bg-primary">1</Button>
-        <Button variant="outline" size="sm">2</Button>
-        <Button variant="outline" size="sm">3</Button>
-        <Button variant="outline" size="sm">Next</Button>
-      </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-8">
+          <Button variant="outline" size="sm" 
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+            disabled={currentPage === 1}>
+            Previous
+          </Button>
+          
+          {Array.from({ length: totalPages }).map((_, i) => (
+            <Button key={i} 
+              variant={currentPage === i + 1 ? 'default' : 'outline'} 
+              size="sm" 
+              className={currentPage === i + 1 ? 'bg-primary' : ''}
+              onClick={() => setCurrentPage(i + 1)}>
+              {i + 1}
+            </Button>
+          ))}
+
+          <Button variant="outline" size="sm"
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage === totalPages}>
+            Next
+          </Button>
+        </div>
+      )}
     </main>
   )
 }

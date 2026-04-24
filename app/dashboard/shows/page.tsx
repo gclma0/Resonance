@@ -278,7 +278,7 @@ export default function ShowsPage() {
                 <Input className="mt-1" placeholder="e.g. Neon Nights Vol. 2" value={newShow.title}
                   onChange={e => setNewShow(p => ({ ...p, title: e.target.value }))} />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-sm font-medium">Date</label>
                   <Input className="mt-1" type="date" value={newShow.date}

@@ -11,42 +11,22 @@ import { DUMMY_ACCOUNTS } from '@/lib/dummy-accounts'
 import { getDummyFollows, toggleDummyFollow, isDummyFollowing } from '@/lib/dummy-follows'
 import { getStoredShows } from '@/lib/shows-store'
 
-// Show first 6 in the sidebar
 const DUMMY_SUGGESTIONS = DUMMY_ACCOUNTS.slice(0, 6)
 
-// Parse "Apr 2026" -> timestamp for sorting
 function parseDummyDate(date: string): number {
-  const months: Record<string, number> = {
-    Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
-    Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
-  }
+  const months: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 }
   const [month, year] = date.split(' ')
   return new Date(parseInt(year), months[month] ?? 0, 15).getTime()
 }
 
-const COMMENT_TEXTS = [
-  'This is absolutely incredible! 🔥',
-  'Love this so much, keep creating! 🎶',
-  'Best thing I\'ve heard all week',
-  'Wow the production quality here is insane',
-  'This hits different at midnight fr',
-  'The vibe is completely unmatched ✨',
-  'I\'ve had this on repeat all day long',
-  'Genuinely goosebumps listening to this',
-  'This is everything. Thank you for sharing.',
-  'The energy in this is unreal 🎶',
-  'Already added this to my playlist',
-  'Pure art. Nothing less.',
-  'This just made my whole week 💙',
-  'The talent here is on another level',
-  'Can\'t stop listening! More please 🙌',
-]
-const COMMENT_TIMES = ['2h ago', '5h ago', '8h ago', '1d ago', '2d ago', '3d ago', '1w ago', 'Apr 20', 'Apr 18']
+const COMMENT_TEXTS = ['This is absolutely incredible! 🔥', 'Love this so much, keep creating! 🎶', 'Best thing I\'ve heard all week', 'Wow the production quality here is insane', 'This hits different at midnight fr', 'The vibe is completely unmatched ✨']
+const COMMENT_TIMES = ['2h ago', '5h ago', '8h ago', '1d ago', '2d ago']
 
 function generateDummyComments(count: number, accounts: typeof DUMMY_ACCOUNTS) {
-  const shown = Math.min(count, 8)
+  const shown = Math.min(count, 5)
   return Array.from({ length: shown }, (_, i) => ({
     author: accounts[i % accounts.length].full_name,
+    avatar: null,
     text: COMMENT_TEXTS[i % COMMENT_TEXTS.length],
     ts: COMMENT_TIMES[i % COMMENT_TIMES.length],
   }))
@@ -58,7 +38,6 @@ export default function FeedPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const [playingId, setPlayingId] = useState<string | null>(null)
 
-  // Composer state
   const [currentUser, setCurrentUser] = useState<any>(null)
   const [postContent, setPostContent] = useState('')
   const [mediaFile, setMediaFile] = useState<File | null>(null)
@@ -67,52 +46,114 @@ export default function FeedPage() {
   const [trackGenre, setTrackGenre] = useState('')
   const [isPosting, setIsPosting] = useState(false)
 
-  // Sidebar follow state (reads from localStorage)
   const [sidebarFollowed, setSidebarFollowed] = useState<Record<string, boolean>>({})
+  const [commentState, setCommentState] = useState<Record<string, { open: boolean; text: string; list: any[]; loading?: boolean }>>({})
+  
+  // Share Modal State
+  const [shareItem, setShareItem] = useState<any>(null)
+  const [shareThought, setShareThought] = useState('')
+  const [isSharing, setIsSharing] = useState(false)
 
-  // Comments state: { [itemId]: { open: boolean, text: string, list: {author,text,ts}[] } }
-  const [commentState, setCommentState] = useState<Record<string, { open: boolean; text: string; list: { author: string; text: string; ts: string }[] }>>({})
-  // Share toast
-  const [sharedId, setSharedId] = useState<string | null>(null)
-
-  const toggleComments = (id: string) => {
+  const toggleComments = async (id: string, isDummy: boolean, dbId?: string, type?: string) => {
     const item = feedItems.find(i => i.id === id)
+    
     setCommentState(prev => {
       const existing = prev[id]
-      // Pre-seed dummy comments when opening for the first time
-      if (!existing?.open && (item?.comments ?? 0) > 0 && (!existing?.list || existing.list.length === 0)) {
-        return { ...prev, [id]: { open: true, text: '', list: generateDummyComments(item!.comments, DUMMY_ACCOUNTS) } }
+      if (existing?.open) {
+        return { ...prev, [id]: { ...existing, open: false } }
       }
-      return { ...prev, [id]: { open: !existing?.open, text: existing?.text ?? '', list: existing?.list ?? [] } }
+      return { ...prev, [id]: { open: true, text: existing?.text ?? '', list: existing?.list ?? [], loading: !isDummy && (!existing?.list || existing.list.length === 0) } }
     })
-  }
 
-  const submitComment = (id: string) => {
-    const text = commentState[id]?.text?.trim()
-    if (!text) return
-    const newComment = { 
-      author: currentUser?.full_name || 'You', 
-      avatar: currentUser?.avatar_url || null,
-      text, 
-      ts: 'Just now' 
+    if (!isDummy && dbId) {
+       const supabase = createClient()
+       const column = type === 'music' ? 'track_id' : 'post_id'
+       const { data } = await supabase.from('comments').select('*, user:user_id(*)').eq(column, dbId).order('created_at', { ascending: false })
+       
+       if (data) {
+         setCommentState(prev => ({
+           ...prev,
+           [id]: {
+             ...prev[id],
+             loading: false,
+             list: data.map(c => ({
+               author: c.user.full_name,
+               avatar: c.user.avatar_url,
+               text: c.content,
+               ts: new Date(c.created_at).toLocaleDateString()
+             }))
+           }
+         }))
+       }
+    } else if (isDummy) {
+      setCommentState(prev => {
+        const existing = prev[id]
+        if ((item?.comments ?? 0) > 0 && (!existing?.list || existing.list.length === 0)) {
+          return { ...prev, [id]: { ...existing, list: generateDummyComments(item!.comments, DUMMY_ACCOUNTS) } }
+        }
+        return prev
+      })
     }
-    setCommentState(prev => ({
-      ...prev,
-      [id]: { open: true, text: '', list: [newComment, ...(prev[id]?.list ?? [])] },
-    }))
-    setFeedItems(items => items.map(item =>
-      item.id === id ? { ...item, comments: item.comments + 1 } : item
-    ))
   }
 
-  const handleShare = (id: string, username: string) => {
-    const url = `${window.location.origin}/dashboard/profile/${username}`
-    navigator.clipboard.writeText(url).catch(() => {})
-    setSharedId(id)
-    setTimeout(() => setSharedId(null), 2000)
+  const submitComment = async (id: string, isDummy: boolean, dbId?: string, type?: string) => {
+    const text = commentState[id]?.text?.trim()
+    if (!text || !currentUser) return
+    
+    const newComment = { author: currentUser.full_name, avatar: currentUser.avatar_url, text, ts: 'Just now' }
+    setCommentState(prev => ({ ...prev, [id]: { ...prev[id], text: '', list: [newComment, ...(prev[id]?.list ?? [])] } }))
+    setFeedItems(items => items.map(i => i.id === id ? { ...i, comments: i.comments + 1 } : i))
+
+    if (!isDummy && dbId) {
+      const supabase = createClient()
+      const column = type === 'music' ? 'track_id' : 'post_id'
+      await supabase.from('comments').insert({ user_id: currentUser.id, [column]: dbId, content: text })
+      // Count is optimistically updated, if RPC exists it can be called.
+    }
   }
 
-  // Initialise sidebar follow state from localStorage on mount
+  const handleLike = async (id: string, isDummy: boolean, dbId?: string, type?: string) => {
+    if (!currentUser) return
+    const item = feedItems.find(i => i.id === id)
+    if (!item) return
+    const isLiked = item.isLiked
+    
+    setFeedItems(items => items.map(i => i.id === id ? { ...i, isLiked: !isLiked, likes: isLiked ? i.likes - 1 : i.likes + 1 } : i))
+
+    if (!isDummy && dbId) {
+       const supabase = createClient()
+       const column = type === 'music' ? 'track_id' : 'post_id'
+       if (!isLiked) {
+         await supabase.from('likes').insert({ user_id: currentUser.id, [column]: dbId })
+       } else {
+         await supabase.from('likes').delete().eq('user_id', currentUser.id).eq(column, dbId)
+       }
+    }
+  }
+
+  const execShare = async () => {
+    if (!currentUser || !shareItem) return
+    setIsSharing(true)
+    try {
+      const supabase = createClient()
+      const dbId = shareItem.dbId || shareItem.id.replace(/^(post-|track-|show-|dummy-post-|dummy-track-)/, '')
+      const content = `[SHARE:${shareItem.type}:${dbId}]\n${shareThought}`
+      
+      await supabase.from('posts').insert({
+        user_id: currentUser.id,
+        content
+      })
+      
+      setShareItem(null)
+      setShareThought('')
+      loadFeed() // refresh
+    } catch(e) {
+      console.error(e)
+    } finally {
+      setIsSharing(false)
+    }
+  }
+
   useEffect(() => {
     if (!currentUser) return
     const init: Record<string, boolean> = {}
@@ -124,7 +165,6 @@ export default function FeedPage() {
     if (!currentUser) return
     toggleDummyFollow(username, currentUser.id)
     setSidebarFollowed(prev => ({ ...prev, [id]: !prev[id] }))
-    // Reload feed so the newly followed account's posts appear
     loadFeed()
   }
 
@@ -133,20 +173,24 @@ export default function FeedPage() {
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
 
-    // Fetch current user profile
-    if (user && !currentUser) {
-      const { data: userData } = await supabase.from('users').select('*').eq('id', user.id).single()
-      if (userData) setCurrentUser(userData)
+    let userData = null
+    let likedPostIds = new Set<string>()
+    let likedTrackIds = new Set<string>()
+
+    if (user) {
+      const { data } = await supabase.from('users').select('*').eq('id', user.id).single()
+      userData = data
+      setCurrentUser(data)
+
+      const { data: myLikes } = await supabase.from('likes').select('post_id, track_id').eq('user_id', user.id)
+      likedPostIds = new Set(myLikes?.map(l => l.post_id).filter(Boolean))
+      likedTrackIds = new Set(myLikes?.map(l => l.track_id).filter(Boolean))
     }
 
     const unifiedArray: any[] = []
 
     if (user) {
-      // ── Real follows ──────────────────────────────────────────────────────
-      const { data: follows } = await supabase
-        .from('follows')
-        .select('following_id')
-        .eq('follower_id', user.id)
+      const { data: follows } = await supabase.from('follows').select('following_id').eq('follower_id', user.id)
       const followingIds = follows?.map(f => f.following_id) || []
       const feedUserIds = [...followingIds, user.id]
 
@@ -158,177 +202,78 @@ export default function FeedPage() {
 
         if (tracksRes.data) {
           unifiedArray.push(...tracksRes.data.map((t: any) => ({
-            id: `track-${t.id}`,
-            dbId: t.id,
-            type: 'music',
-            author: {
-              id: t.author.id,
-              name: t.author.full_name,
-              username: t.author.username,
-              avatar: t.author.avatar_url,
-              userType: t.author.role,
-            },
-            title: t.title,
-            description: t.description || '',
-            musicUrl: t.audio_url,
-            plays: t.play_count || 0,
-            likes: t.likes_count || 0,
-            comments: t.comments_count || 0,
-            shares: 0,
-            timestampRaw: new Date(t.created_at).getTime(),
-            timestamp: new Date(t.created_at).toLocaleDateString(),
-            isLiked: false,
+            id: `track-${t.id}`, dbId: t.id, type: 'music',
+            author: { id: t.author.id, name: t.author.full_name, username: t.author.username, avatar: t.author.avatar_url, userType: t.author.role },
+            title: t.title, description: t.description || '', musicUrl: t.audio_url,
+            plays: t.play_count || 0, likes: t.likes_count || 0, comments: t.comments_count || 0, shares: t.shares_count || 0,
+            timestampRaw: new Date(t.created_at).getTime(), timestamp: new Date(t.created_at).toLocaleDateString(),
+            isLiked: likedTrackIds.has(t.id), isDummy: false
           })))
         }
 
         if (postsRes.data) {
           unifiedArray.push(...postsRes.data.map((p: any) => ({
-            id: `post-${p.id}`,
-            dbId: p.id,
-            type: 'post',
-            author: {
-              id: p.author.id,
-              name: p.author.full_name,
-              username: p.author.username,
-              avatar: p.author.avatar_url,
-              userType: p.author.role,
-            },
-            content: p.content,
-            imageUrl: p.image_url,
-            likes: p.likes_count || 0,
-            comments: p.comments_count || 0,
-            shares: p.shares_count || 0,
-            timestampRaw: new Date(p.created_at).getTime(),
-            timestamp: new Date(p.created_at).toLocaleDateString(),
-            isLiked: false,
+            id: `post-${p.id}`, dbId: p.id, type: 'post',
+            author: { id: p.author.id, name: p.author.full_name, username: p.author.username, avatar: p.author.avatar_url, userType: p.author.role },
+            content: p.content, imageUrl: p.image_url,
+            likes: p.likes_count || 0, comments: p.comments_count || 0, shares: p.shares_count || 0,
+            timestampRaw: new Date(p.created_at).getTime(), timestamp: new Date(p.created_at).toLocaleDateString(),
+            isLiked: likedPostIds.has(p.id), isDummy: false
           })))
         }
       }
     }
 
-    // ── Dummy follows (always load, regardless of auth) ───────────────────
     const dummyFollowedUsernames = user ? getDummyFollows(user.id) : []
-    const followedDummyAccounts = DUMMY_ACCOUNTS.filter(a =>
-      dummyFollowedUsernames.includes(a.username)
-    )
+    const followedDummyAccounts = DUMMY_ACCOUNTS.filter(a => dummyFollowedUsernames.includes(a.username))
 
     for (const account of followedDummyAccounts) {
-      // Inject dummy tracks
       account.dummyTracks?.forEach(track => {
         unifiedArray.push({
-          id: `dummy-track-${track.id}`,
-          type: 'music',
-          isDummy: true,
-          author: {
-            id: account.id,
-            name: account.full_name,
-            username: account.username,
-            avatar: null,
-            avatarColor: account.avatar_color,
-            initials: account.initials,
-            userType: account.role,
-          },
-          title: track.title,
-          description: `${track.genre} · ${account.full_name}`,
-          musicUrl: null,
+          id: `dummy-track-${track.id}`, type: 'music', isDummy: true,
+          author: { id: account.id, name: account.full_name, username: account.username, avatar: null, avatarColor: account.avatar_color, initials: account.initials, userType: account.role },
+          title: track.title, description: `${track.genre} · ${account.full_name}`, musicUrl: null,
           plays: parseInt(track.plays.replace(/[^0-9]/g, '')) * (track.plays.includes('K') ? 1000 : 1),
           likes: parseInt(track.likes.replace(/[^0-9]/g, '')) * (track.likes.includes('K') ? 1000 : 1),
-          comments: 0,
-          shares: 0,
-          timestampRaw: parseDummyDate(track.date),
-          timestamp: track.date,
-          isLiked: false,
+          comments: 0, shares: 0, timestampRaw: parseDummyDate(track.date), timestamp: track.date, isLiked: false,
         })
       })
 
-      // Inject dummy posts
       account.dummyPosts?.forEach(post => {
         unifiedArray.push({
-          id: `dummy-post-${post.id}`,
-          type: 'post',
-          isDummy: true,
-          author: {
-            id: account.id,
-            name: account.full_name,
-            username: account.username,
-            avatar: null,
-            avatarColor: account.avatar_color,
-            initials: account.initials,
-            userType: account.role,
-          },
-          content: post.content,
-          imageUrl: null,
+          id: `dummy-post-${post.id}`, type: 'post', isDummy: true,
+          author: { id: account.id, name: account.full_name, username: account.username, avatar: null, avatarColor: account.avatar_color, initials: account.initials, userType: account.role },
+          content: post.content, imageUrl: null,
           likes: parseInt(post.likes.replace(/[^0-9]/g, '')) * (post.likes.includes('K') ? 1000 : 1),
           comments: parseInt(post.comments.replace(/[^0-9]/g, '')),
-          shares: 0,
-          timestampRaw: parseDummyDate(post.date),
-          timestamp: post.date,
-          isLiked: false,
+          shares: 0, timestampRaw: parseDummyDate(post.date), timestamp: post.date, isLiked: false,
         })
       })
     }
 
-    // ── Show announcements from localStorage ──────────────────────────────
     const storedShows = getStoredShows()
     storedShows.forEach(show => {
       const showTs = new Date(show.date).getTime()
       unifiedArray.push({
-        id: `show-${show.id}`,
-        type: 'show',
-        isDummy: false,
-        author: {
-          id: show.artistUsername,
-          name: show.artistName,
-          username: show.artistUsername,
-          avatar: null,
-          userType: 'artist',
-        },
-        showTitle: show.title,
-        showDate: new Date(show.date).toLocaleDateString('en-US', {
-          weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
-        }),
-        showLocation: show.location,
-        showDescription: show.description,
-        showPriceUSD: show.ticketPrice.usd,
-        showPriceBDT: show.ticketPrice.bdt,
-        showTicketsLeft: show.totalTickets - show.ticketsSold,
-        likes: 0,
-        comments: 0,
-        shares: 0,
-        timestampRaw: show.createdAt,
-        timestamp: new Date(show.createdAt).toLocaleDateString(),
-        isLiked: false,
-        isUpcoming: showTs >= Date.now(),
+        id: `show-${show.id}`, dbId: show.id, type: 'show', isDummy: false,
+        author: { id: show.artistUsername, name: show.artistName, username: show.artistUsername, avatar: null, userType: 'artist' },
+        showTitle: show.title, showDate: new Date(show.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }),
+        showLocation: show.location, showDescription: show.description, showPriceUSD: show.ticketPrice.usd, showPriceBDT: show.ticketPrice.bdt, showTicketsLeft: show.totalTickets - show.ticketsSold,
+        likes: 0, comments: 0, shares: 0, timestampRaw: show.createdAt, timestamp: new Date(show.createdAt).toLocaleDateString(), isLiked: false, isUpcoming: showTs >= Date.now(),
       })
     })
 
     unifiedArray.sort((a, b) => b.timestampRaw - a.timestampRaw)
     setFeedItems(unifiedArray)
     setLoading(false)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => { loadFeed() }, [loadFeed])
 
   const togglePlay = (id: string, url: string | null) => {
     if (!url) return
-    if (playingId === id) {
-      audioRef.current?.pause()
-      setPlayingId(null)
-    } else {
-      if (audioRef.current) { audioRef.current.src = url; audioRef.current.play() }
-      setPlayingId(id)
-    }
-  }
-
-  const handleLike = (id: string) => {
-    setFeedItems(items =>
-      items.map(item =>
-        item.id === id
-          ? { ...item, isLiked: !item.isLiked, likes: item.isLiked ? item.likes - 1 : item.likes + 1 }
-          : item
-      )
-    )
+    if (playingId === id) { audioRef.current?.pause(); setPlayingId(null) }
+    else { if (audioRef.current) { audioRef.current.src = url; audioRef.current.play() }; setPlayingId(id) }
   }
 
   const handlePost = async () => {
@@ -370,13 +315,38 @@ export default function FeedPage() {
     <div className="w-full py-8 px-4">
       <audio ref={audioRef} onEnded={() => setPlayingId(null)} />
 
-      <div className="max-w-6xl mx-auto flex gap-6 items-start">
+      {/* Share Modal */}
+      {shareItem && (
+        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <Card className="w-full max-w-lg p-6 shadow-2xl animate-in fade-in zoom-in-95">
+            <h2 className="text-xl font-bold mb-4">Share to your feed</h2>
+            <textarea
+              placeholder="Add your thoughts about this..."
+              className="w-full min-h-[100px] p-3 mb-4 rounded-lg bg-muted border border-border focus:border-primary focus:ring-1 focus:ring-primary outline-none transition resize-none"
+              value={shareThought}
+              onChange={e => setShareThought(e.target.value)}
+            />
+            <div className="p-4 rounded-xl border border-border bg-muted/30 mb-6">
+              <p className="font-semibold text-sm mb-1">Sharing {shareItem.author?.name}'s {shareItem.type}</p>
+              <p className="text-sm text-muted-foreground line-clamp-2">
+                {shareItem.title || shareItem.showTitle || shareItem.content}
+              </p>
+            </div>
+            <div className="flex justify-end gap-3">
+              <Button variant="ghost" onClick={() => { setShareItem(null); setShareThought('') }}>Cancel</Button>
+              <Button className="bg-primary text-primary-foreground" onClick={execShare} disabled={isSharing}>
+                {isSharing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Share2 className="w-4 h-4 mr-2" />}
+                Share Now
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
-        {/* ── Main Feed Column ───────────────────────────────── */}
+      <div className="max-w-6xl mx-auto flex gap-6 items-start">
         <main className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold mb-4">Feed</h1>
 
-          {/* Create Post */}
           <Card className="mb-4 p-6 border-border">
             <div className="flex gap-4">
               <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0">
@@ -411,7 +381,7 @@ export default function FeedPage() {
                           <Music className="h-6 w-6 text-primary" />
                           <span className="text-sm font-medium">{mediaFile.name} (Audio Attached)</span>
                         </div>
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="text-xs text-muted-foreground block mb-1">Track Title *</label>
                             <Input placeholder="Enter title" value={trackTitle} onChange={e => setTrackTitle(e.target.value)} className="h-8" />
@@ -448,7 +418,6 @@ export default function FeedPage() {
             </div>
           </Card>
 
-          {/* Feed Items */}
           {loading && feedItems.length === 0 ? (
             <div className="min-h-[30vh] flex justify-center items-center">
               <Loader2 className="animate-spin text-primary w-8 h-8" />
@@ -466,204 +435,218 @@ export default function FeedPage() {
             </div>
           ) : (
             <div className="space-y-4 pb-8">
-              {feedItems.map(item => (
-                <Card key={item.id} className="border-border hover:border-primary/50 transition">
-                  {/* Post Header */}
-                  <div className="p-4 border-b border-border">
-                    <div className="flex items-start gap-3">
-                      {/* Avatar — gradient for dummy, image/initial for real */}
-                      {item.isDummy ? (
-                        <Link href={`/dashboard/profile/${item.author.username}`}>
-                          <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${item.author.avatarColor} flex items-center justify-center text-white text-xs font-bold flex-shrink-0 hover:opacity-80 transition`}>
-                            {item.author.initials}
-                          </div>
-                        </Link>
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                          {item.author.avatar
-                            ? <img src={item.author.avatar} alt="avatar" className="w-full h-full object-cover" />
-                            : <span className="text-xs font-bold">{item.author.name.charAt(0)}</span>}
-                        </div>
-                      )}
+              {feedItems.map(item => {
+                let displayContent = item.content
+                let sharedInfo = null
 
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Link href={`/dashboard/profile/${item.author.username}`} className="font-semibold hover:underline">
-                            {item.author.name}
+                if (item.type === 'post' && item.content) {
+                  const shareMatch = item.content.match(/\[SHARE:(post|music|show):([^\]]+)\]/)
+                  if (shareMatch) {
+                    const [fullMatch, sType, sId] = shareMatch
+                    displayContent = item.content.replace(fullMatch, '').trim()
+                    sharedInfo = { type: sType, id: sId }
+                  }
+                }
+
+                return (
+                  <Card key={item.id} className="border-border hover:border-primary/50 transition">
+                    <div className="p-4 border-b border-border">
+                      <div className="flex items-start gap-3">
+                        {item.isDummy ? (
+                          <Link href={`/dashboard/profile/${item.author.username}`}>
+                            <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${item.author.avatarColor} flex items-center justify-center text-white text-xs font-bold flex-shrink-0 hover:opacity-80 transition`}>
+                              {item.author.initials}
+                            </div>
                           </Link>
-                          <span className="text-muted-foreground text-sm">@{item.author.username}</span>
-                          {item.author.userType === 'artist' && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-primary/20 text-primary">
-                              <Music className="h-3 w-3" /> Artist
-                            </span>
-                          )}
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                            {item.author.avatar
+                              ? <img src={item.author.avatar} alt="avatar" className="w-full h-full object-cover" />
+                              : <span className="text-xs font-bold">{item.author.name.charAt(0)}</span>}
+                          </div>
+                        )}
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link href={`/dashboard/profile/${item.author.username}`} className="font-semibold hover:underline">
+                              {item.author.name}
+                            </Link>
+                            <span className="text-muted-foreground text-sm">@{item.author.username}</span>
+                            {item.author.userType === 'artist' && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-primary/20 text-primary">
+                                <Music className="h-3 w-3" /> Artist
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground mt-1">{item.timestamp}</p>
                         </div>
-                        <p className="text-sm text-muted-foreground mt-1">{item.timestamp}</p>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Post Content */}
-                  <div className="p-4">
-                    {item.type === 'post' && (
+                    <div className="p-4">
+                      {item.type === 'post' && (
+                        <>
+                          {displayContent && <p className="text-foreground mb-4 whitespace-pre-wrap">{displayContent}</p>}
+                          {sharedInfo && (
+                            <div className="border border-primary/20 rounded-xl p-4 bg-primary/5 mb-4 shadow-inner">
+                              <p className="text-xs text-primary font-bold mb-2 flex items-center gap-2 uppercase tracking-wide"><Share2 className="w-3.5 h-3.5"/> Reshared {sharedInfo.type}</p>
+                              <p className="text-sm font-medium text-foreground">Click to view the original content.</p>
+                            </div>
+                          )}
+                          {item.imageUrl && (
+                            <div className="rounded-lg overflow-hidden border border-border mt-4">
+                              <img src={item.imageUrl} alt="Post attachment" className="w-full max-h-[500px] object-cover" />
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {item.type === 'music' && (
+                        <>
+                          {item.description && <p className="text-foreground mb-4 whitespace-pre-wrap">{item.description}</p>}
+                          <div className="bg-gradient-to-r from-primary/10 to-secondary/10 rounded-lg p-4 mb-4 border border-primary/20">
+                            <div className="flex items-center gap-4">
+                              <Button variant="default" size="icon"
+                                onClick={() => togglePlay(item.id, item.musicUrl)}
+                                disabled={item.isDummy}
+                                className={`w-16 h-16 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${playingId === item.id ? 'bg-primary text-white animate-pulse shadow-lg shadow-primary/40' : 'bg-primary/20 text-primary hover:bg-primary hover:text-white'}`}>
+                                {playingId === item.id ? <Pause className="h-8 w-8 fill-current" /> : <Play className="h-8 w-8 ml-1 fill-current" />}
+                              </Button>
+                              <div className="flex-1 min-w-0">
+                                <h3 className="font-semibold truncate">{item.title}</h3>
+                                <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
+                                  <span>{Number(item.plays).toLocaleString()} plays</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </>
+                      )}
+
+                      {item.type === 'show' && (
+                        <div className="rounded-xl overflow-hidden border border-primary/20 bg-gradient-to-br from-primary/5 to-secondary/5">
+                          <div className="bg-gradient-to-r from-primary/20 to-secondary/20 px-4 py-3 flex items-center gap-2 border-b border-primary/10">
+                            <Calendar className="h-4 w-4 text-primary" />
+                            <span className="text-xs font-semibold text-primary uppercase tracking-wider">Live Show Announcement</span>
+                            {item.isUpcoming && (
+                              <span className="ml-auto text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full font-medium">Upcoming</span>
+                            )}
+                          </div>
+                          <div className="p-4 space-y-3">
+                            <h3 className="font-bold text-lg">{item.showTitle}</h3>
+                            {item.showDescription && (
+                              <p className="text-sm text-muted-foreground line-clamp-2">{item.showDescription}</p>
+                            )}
+                            <div className="space-y-1.5 text-sm">
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <Calendar className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+                                <span>{item.showDate}</span>
+                              </div>
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <MapPin className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+                                <span className="truncate">{item.showLocation}</span>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                              <div className="min-w-[120px]">
+                                <span className="text-xs text-muted-foreground">Tickets from</span>
+                                <p className="font-bold text-primary">${item.showPriceUSD} <span className="text-muted-foreground font-normal text-xs">/ ৳{item.showPriceBDT}</span></p>
+                              </div>
+                              <Link href="/dashboard/shows" className="flex-shrink-0">
+                                <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/85">
+                                  <Ticket className="h-3.5 w-3.5 mr-1.5" /> View Details
+                                </Button>
+                              </Link>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {item.type !== 'show' && (
                       <>
-                        {item.content && <p className="text-foreground mb-4 whitespace-pre-wrap">{item.content}</p>}
-                        {item.imageUrl && (
-                          <div className="rounded-lg overflow-hidden border border-border mt-4">
-                            <img src={item.imageUrl} alt="Post attachment" className="w-full max-h-[500px] object-cover" />
+                        <div className="px-4 py-2 border-t border-border text-xs text-muted-foreground flex gap-4">
+                          <span>{Number(item.likes).toLocaleString()} likes</span>
+                          <span>{item.comments} comments</span>
+                          <span>{item.shares} shares</span>
+                        </div>
+
+                        <div className="p-2 sm:p-3 border-t border-border flex gap-1 sm:gap-2">
+                          <button onClick={() => handleLike(item.id, item.isDummy, item.dbId, item.type)}
+                            className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2 rounded-lg font-medium transition-all ${item.isLiked ? 'text-primary bg-primary/10 hover:bg-primary/20' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+                            <Heart className="h-4 w-4 sm:h-5 sm:w-5" fill={item.isLiked ? 'currentColor' : 'none'} />
+                            <span className="text-xs sm:text-sm">Like</span>
+                          </button>
+                          <button onClick={() => toggleComments(item.id, item.isDummy, item.dbId, item.type)}
+                            className={`flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2 rounded-lg font-medium transition-all ${commentState[item.id]?.open ? 'text-primary bg-primary/10 hover:bg-primary/20' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+                            <MessageCircle className="h-4 w-4 sm:h-5 sm:w-5" fill={commentState[item.id]?.open ? 'currentColor' : 'none'} />
+                            <span className="text-xs sm:text-sm">Comment</span>
+                          </button>
+                          <button onClick={() => setShareItem(item)}
+                            className="flex-1 flex items-center justify-center gap-1.5 sm:gap-2 py-2 rounded-lg font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-all">
+                            <Share2 className="h-4 w-4 sm:h-5 sm:w-5" />
+                            <span className="text-xs sm:text-sm">Share</span>
+                          </button>
+                        </div>
+
+                        {commentState[item.id]?.open && (
+                          <div className="border-t border-border px-4 pb-5 pt-4 bg-muted/10">
+                            <div className="flex gap-3 mb-5">
+                              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center overflow-hidden flex-shrink-0 mt-0.5">
+                                {currentUser?.avatar_url
+                                  ? <img src={currentUser.avatar_url} alt="Profile" className="w-full h-full object-cover" />
+                                  : <span className="text-xs font-bold">{currentUser?.full_name?.charAt(0) || 'Y'}</span>}
+                              </div>
+                              <div className="flex-1 flex gap-2">
+                                <Input
+                                  placeholder="Write a comment…"
+                                  value={commentState[item.id]?.text ?? ''}
+                                  onChange={e => setCommentState(prev => ({ ...prev, [item.id]: { ...prev[item.id], text: e.target.value } }))}
+                                  onKeyDown={e => { if (e.key === 'Enter') submitComment(item.id, item.isDummy, item.dbId, item.type) }}
+                                  className="h-10 text-sm bg-background border-border focus-visible:ring-primary/50"
+                                />
+                                <button
+                                  onClick={() => submitComment(item.id, item.isDummy, item.dbId, item.type)}
+                                  disabled={!commentState[item.id]?.text?.trim()}
+                                  className="px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center">
+                                  <Send className="h-4 w-4" />
+                                </button>
+                              </div>
+                            </div>
+                            
+                            {commentState[item.id]?.loading ? (
+                              <div className="flex justify-center py-4"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div>
+                            ) : (commentState[item.id]?.list ?? []).length > 0 && (
+                              <div className="space-y-4 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+                                {(commentState[item.id]?.list ?? []).map((c, i) => (
+                                  <div key={i} className="flex gap-3 text-sm animate-in fade-in slide-in-from-bottom-2">
+                                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary flex-shrink-0 overflow-hidden shadow-sm">
+                                      {c.avatar ? <img src={c.avatar} alt="avatar" className="w-full h-full object-cover" /> : c.author.charAt(0)}
+                                    </div>
+                                    <div className="flex-1">
+                                      <div className="bg-background border border-border shadow-sm rounded-2xl rounded-tl-sm px-4 py-2.5 inline-block max-w-[90%]">
+                                        <span className="font-bold text-sm text-foreground block mb-0.5">{c.author}</span>
+                                        <span className="text-foreground/90 text-sm leading-relaxed">{c.text}</span>
+                                      </div>
+                                      <p className="text-[11px] font-medium text-muted-foreground mt-1.5 ml-1">{c.ts}</p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
                       </>
                     )}
-
-                    {item.type === 'music' && (
-                      <>
-                        {item.description && <p className="text-foreground mb-4 whitespace-pre-wrap">{item.description}</p>}
-                        <div className="bg-gradient-to-r from-primary/10 to-secondary/10 rounded-lg p-4 mb-4 border border-primary/20">
-                          <div className="flex items-center gap-4">
-                            <Button variant="default" size="icon"
-                              onClick={() => togglePlay(item.id, item.musicUrl)}
-                              disabled={item.isDummy}
-                              className={`w-16 h-16 rounded-lg flex items-center justify-center flex-shrink-0 transition-colors ${playingId === item.id ? 'bg-primary text-white animate-pulse shadow-lg shadow-primary/40' : 'bg-primary/20 text-primary hover:bg-primary hover:text-white'}`}>
-                              {playingId === item.id ? <Pause className="h-8 w-8 fill-current" /> : <Play className="h-8 w-8 ml-1 fill-current" />}
-                            </Button>
-                            <div className="flex-1 min-w-0">
-                              <h3 className="font-semibold truncate">{item.title}</h3>
-                              <div className="flex gap-4 mt-2 text-xs text-muted-foreground">
-                                <span>{Number(item.plays).toLocaleString()} plays</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </>
-                    )}
-
-                    {item.type === 'show' && (
-                      <div className="rounded-xl overflow-hidden border border-primary/20 bg-gradient-to-br from-primary/5 to-secondary/5">
-                        {/* Show banner */}
-                        <div className="bg-gradient-to-r from-primary/20 to-secondary/20 px-4 py-3 flex items-center gap-2 border-b border-primary/10">
-                          <Calendar className="h-4 w-4 text-primary" />
-                          <span className="text-xs font-semibold text-primary uppercase tracking-wider">Live Show Announcement</span>
-                          {item.isUpcoming && (
-                            <span className="ml-auto text-xs bg-primary/20 text-primary px-2 py-0.5 rounded-full font-medium">Upcoming</span>
-                          )}
-                        </div>
-                        <div className="p-4 space-y-3">
-                          <h3 className="font-bold text-lg">{item.showTitle}</h3>
-                          {item.showDescription && (
-                            <p className="text-sm text-muted-foreground line-clamp-2">{item.showDescription}</p>
-                          )}
-                          <div className="space-y-1.5 text-sm">
-                            <div className="flex items-center gap-2 text-muted-foreground">
-                              <Calendar className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                              <span>{item.showDate}</span>
-                            </div>
-                            <div className="flex items-center gap-2 text-muted-foreground">
-                              <MapPin className="h-3.5 w-3.5 text-primary flex-shrink-0" />
-                              <span className="truncate">{item.showLocation}</span>
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-                            <div className="min-w-[120px]">
-                              <span className="text-xs text-muted-foreground">Tickets from</span>
-                              <p className="font-bold text-primary">${item.showPriceUSD} <span className="text-muted-foreground font-normal text-xs">/ ৳{item.showPriceBDT}</span></p>
-                            </div>
-                            <Link href="/dashboard/shows" className="flex-shrink-0">
-                              <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/85">
-                                <Ticket className="h-3.5 w-3.5 mr-1.5" /> View Details
-                              </Button>
-                            </Link>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Engagement Stats + Buttons — skip for show cards */}
-                  {item.type !== 'show' && (
-                    <>
-                      <div className="px-4 py-2 border-t border-border text-xs text-muted-foreground flex gap-4">
-                        <span>{Number(item.likes).toLocaleString()} likes</span>
-                        <span>{item.comments} comments</span>
-                        <span>{item.shares} shares</span>
-                      </div>
-
-                  {/* Engagement Buttons */}
-                  <div className="p-4 border-t border-border flex gap-4">
-                    <button onClick={() => handleLike(item.id)}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg transition ${item.isLiked ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:bg-muted'}`}>
-                      <Heart className="h-5 w-5" fill={item.isLiked ? 'currentColor' : 'none'} />
-                      <span className="text-sm">Like</span>
-                    </button>
-                    <button onClick={() => toggleComments(item.id)}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg transition ${commentState[item.id]?.open ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:bg-muted'}`}>
-                      <MessageCircle className="h-5 w-5" fill={commentState[item.id]?.open ? 'currentColor' : 'none'} />
-                      <span className="text-sm">Comment</span>
-                    </button>
-                    <button onClick={() => handleShare(item.id, item.author.username)}
-                      className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg transition ${sharedId === item.id ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground hover:bg-muted'}`}>
-                      {sharedId === item.id ? <><Link2 className="h-5 w-5" /><span className="text-sm">Copied!</span></>
-                        : <><Share2 className="h-5 w-5" /><span className="text-sm">Share</span></>}
-                    </button>
-                  </div>
-
-                  {/* Inline Comment Panel */}
-                  {commentState[item.id]?.open && (
-                    <div className="border-t border-border px-4 pb-4 pt-3 space-y-3">
-                      {/* Comment input */}
-                      <div className="flex gap-2">
-                        <Input
-                          placeholder="Write a comment…"
-                          value={commentState[item.id]?.text ?? ''}
-                          onChange={e => setCommentState(prev => ({
-                            ...prev,
-                            [item.id]: { ...prev[item.id], text: e.target.value }
-                          }))}
-                          onKeyDown={e => { if (e.key === 'Enter') submitComment(item.id) }}
-                          className="h-9 text-sm"
-                        />
-                        <button
-                          onClick={() => submitComment(item.id)}
-                          disabled={!commentState[item.id]?.text?.trim()}
-                          className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/85 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center gap-1 text-sm font-medium flex-shrink-0">
-                          <Send className="h-4 w-4" />
-                        </button>
-                      </div>
-                      {/* Comment list */}
-                      {(commentState[item.id]?.list ?? []).length > 0 && (
-                        <div className="space-y-2 max-h-48 overflow-y-auto">
-                          {(commentState[item.id]?.list ?? []).map((c, i) => (
-                            <div key={i} className="flex gap-2 text-sm">
-                              <div className="w-7 h-7 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold text-primary flex-shrink-0 overflow-hidden">
-                                {(c as any).avatar ? (
-                                  <img src={(c as any).avatar} alt="avatar" className="w-full h-full object-cover" />
-                                ) : (
-                                  c.author.charAt(0)
-                                )}
-                              </div>
-                              <div className="flex-1 bg-muted rounded-lg px-3 py-1.5">
-                                <span className="font-semibold text-xs text-foreground">{c.author} </span>
-                                <span className="text-foreground/80">{c.text}</span>
-                                <p className="text-xs text-muted-foreground mt-0.5">{c.ts}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  </>
-                  )}
-                </Card>
-
-              ))}
+                  </Card>
+                )
+              })}
             </div>
           )}
         </main>
 
-        {/* ── People to Follow Sidebar ───────────────────────── */}
         <aside className="w-80 flex-shrink-0 hidden lg:block">
-          <Card className="border-border sticky top-6">
+          <Card className="border-border sticky top-6 shadow-sm">
             <div className="p-4 border-b border-border">
               <h2 className="font-bold text-base">People to Follow</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Discover artists & listeners</p>
