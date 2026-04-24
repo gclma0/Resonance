@@ -211,6 +211,21 @@ function TopNavActions({ currentUser }: { currentUser: any }) {
     return () => { supabase.removeChannel(channel) }
   }, [currentUser, pathname])
 
+  // Polling fallback every 30s in case realtime is not enabled in Supabase
+  useEffect(() => {
+    if (!currentUser) return
+    const supabase = createClient()
+    const poll = setInterval(async () => {
+      const { count } = await supabase
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('receiver_id', currentUser.id)
+        .eq('is_read', false)
+      setUnreadMessages(count || 0)
+    }, 30000)
+    return () => clearInterval(poll)
+  }, [currentUser])
+
   useEffect(() => {
     if (pathname === '/dashboard/messages') {
       setUnreadMessages(0)

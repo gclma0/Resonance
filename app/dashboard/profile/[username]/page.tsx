@@ -423,28 +423,36 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
       combined.sort((a, b) => b.timestampRaw - a.timestampRaw)
       setFeedItems(combined)
 
-      // Fetch shared items
-      const sharedIds = new Set<string>()
-      combined.forEach(i => {
+      // Build sharedMap: pre-seed from already-loaded items first
+      const newSharedMap: Record<string, any> = {}
+      combined.forEach((i: any) => {
+        if (i.dbId) {
+          if (i.type === 'post') newSharedMap[i.dbId] = { content: i.content, author: i.author?.name, img: i.imageUrl }
+          else if (i.type === 'music') newSharedMap[i.dbId] = { title: i.title, author: i.author?.name }
+        }
+      })
+
+      // Fetch any originals not already in the map
+      const missingIds = new Set<string>()
+      combined.forEach((i: any) => {
         if (i.content) {
           const match = i.content.match(/\[SHARE:(post|music|show):([^\]]+)\]/)
-          if (match) sharedIds.add(match[2])
+          if (match && !newSharedMap[match[2]]) missingIds.add(match[2])
         }
       })
       const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
-      const uuidsToFetch = Array.from(sharedIds).filter(isUUID)
+      const uuidsToFetch = Array.from(missingIds).filter(isUUID)
       if (uuidsToFetch.length > 0) {
-        const newSharedMap: Record<string, any> = {}
         const [postsRes, tracksRes, showsRes] = await Promise.all([
-          supabase.from('posts').select('id, content, image_url, author:users(full_name)').in('id', uuidsToFetch),
-          supabase.from('music_tracks').select('id, title, author:users(full_name)').in('id', uuidsToFetch),
-          supabase.from('shows').select('id, title, artist:users(full_name)').in('id', uuidsToFetch)
+          supabase.from('posts').select('id, content, image_url, author:user_id(full_name)').in('id', uuidsToFetch),
+          supabase.from('music_tracks').select('id, title, author:artist_id(full_name)').in('id', uuidsToFetch),
+          supabase.from('shows').select('id, title, artist:user_id(full_name)').in('id', uuidsToFetch)
         ])
-        postsRes.data?.forEach((p: any) => newSharedMap[p.id] = { content: p.content, author: p.author?.full_name, img: p.image_url })
-        tracksRes.data?.forEach((t: any) => newSharedMap[t.id] = { title: t.title, author: t.author?.full_name })
-        showsRes.data?.forEach((s: any) => newSharedMap[s.id] = { title: s.title, author: s.artist?.full_name })
-        setSharedMap(newSharedMap)
+        postsRes.data?.forEach((p: any) => { newSharedMap[p.id] = { content: p.content, author: p.author?.full_name, img: p.image_url } })
+        tracksRes.data?.forEach((t: any) => { newSharedMap[t.id] = { title: t.title, author: t.author?.full_name } })
+        showsRes.data?.forEach((s: any) => { newSharedMap[s.id] = { title: s.title, author: s.artist?.full_name } })
       }
+      setSharedMap(newSharedMap)
 
       if (authData.user) {
         if (authData.user.id === profileData.id) {
@@ -648,16 +656,18 @@ export default function UserProfilePage({ params }: { params: Promise<{ username
                         <p className="text-xs text-primary font-bold mb-2 flex items-center gap-2 uppercase tracking-wide"><Share2 className="w-3.5 h-3.5"/> Reshared {sharedInfo.type}</p>
                         {sharedMap[sharedInfo.id] ? (
                           <div>
-                            <p className="text-xs text-muted-foreground font-semibold mb-1">Original by {sharedMap[sharedInfo.id].author}</p>
+                            {sharedMap[sharedInfo.id].author && (
+                              <p className="text-xs text-muted-foreground font-semibold mb-1">Original by {sharedMap[sharedInfo.id].author}</p>
+                            )}
                             <p className="text-sm font-medium text-foreground line-clamp-3">
-                              {sharedMap[sharedInfo.id].content || sharedMap[sharedInfo.id].title}
+                              {sharedMap[sharedInfo.id].content || sharedMap[sharedInfo.id].title || <span className="italic text-muted-foreground">No preview available</span>}
                             </p>
                             {sharedMap[sharedInfo.id].img && (
                               <img src={sharedMap[sharedInfo.id].img} className="w-full max-h-40 object-cover rounded-lg mt-2" />
                             )}
                           </div>
                         ) : (
-                          <p className="text-sm font-medium text-foreground">Loading original content...</p>
+                          <p className="text-sm italic text-muted-foreground">Original post could not be loaded.</p>
                         )}
                       </div>
                     )}
