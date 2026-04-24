@@ -61,10 +61,15 @@ function UserProfileDropdown({ currentUser }: { currentUser: any }) {
 function TopNavActions({ currentUser }: { currentUser: any }) {
   const pathname = usePathname()
   const [unreadMessages, setUnreadMessages] = useState(0)
+  const [latestMessages, setLatestMessages] = useState<any[]>([])
   const [notifications, setNotifications] = useState<any[]>([])
   const [unreadNotifications, setUnreadNotifications] = useState(0)
+  
   const [isBellOpen, setIsBellOpen] = useState(false)
   const bellRef = useRef<HTMLDivElement>(null)
+  
+  const [isMessageTrayOpen, setIsMessageTrayOpen] = useState(false)
+  const messageTrayRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!currentUser) return
@@ -102,33 +107,23 @@ function TopNavActions({ currentUser }: { currentUser: any }) {
       const myTrackIds = myTracks?.map(t => t.id) || []
       const myShowIds = myShowsRes?.map(s => s.id) || []
 
-      // Latest likes
-      let newLikes: any[] = []
-      if (myPostIds.length > 0 || myTrackIds.length > 0) {
-        let likeQuery = supabase.from('likes').select('*, user:user_id(*)').neq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(20)
-        let orParts = []
-        if (myPostIds.length > 0) orParts.push(`post_id.in.(${myPostIds.join(',')})`)
-        if (myTrackIds.length > 0) orParts.push(`track_id.in.(${myTrackIds.join(',')})`)
-        
-        if (orParts.length > 0) {
-           const { data } = await likeQuery.or(orParts.join(','))
-           newLikes = data || []
-        }
-      }
+      // Parallel DB queries for Likes & Comments (more reliable than string parsing)
+      const [postLikesRes, trackLikesRes, postCommentsRes, trackCommentsRes] = await Promise.all([
+        myPostIds.length > 0 ? supabase.from('likes').select('*, user:user_id(*)').neq('user_id', currentUser.id).in('post_id', myPostIds).limit(15) : { data: [] },
+        myTrackIds.length > 0 ? supabase.from('likes').select('*, user:user_id(*)').neq('user_id', currentUser.id).in('track_id', myTrackIds).limit(15) : { data: [] },
+        myPostIds.length > 0 ? supabase.from('comments').select('*, user:user_id(*)').neq('user_id', currentUser.id).in('post_id', myPostIds).limit(15) : { data: [] },
+        myTrackIds.length > 0 ? supabase.from('comments').select('*, user:user_id(*)').neq('user_id', currentUser.id).in('track_id', myTrackIds).limit(15) : { data: [] }
+      ])
 
-      // Latest comments
-      let newComments: any[] = []
-      if (myPostIds.length > 0 || myTrackIds.length > 0) {
-        let commentQuery = supabase.from('comments').select('*, user:user_id(*)').neq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(20)
-        let orParts = []
-        if (myPostIds.length > 0) orParts.push(`post_id.in.(${myPostIds.join(',')})`)
-        if (myTrackIds.length > 0) orParts.push(`track_id.in.(${myTrackIds.join(',')})`)
-        
-        if (orParts.length > 0) {
-           const { data } = await commentQuery.or(orParts.join(','))
-           newComments = data || []
-        }
-      }
+      const newLikes = [...(postLikesRes.data || []), ...(trackLikesRes.data || [])]
+      const newComments = [...(postCommentsRes.data || []), ...(trackCommentsRes.data || [])]
+
+      // Mentions
+      const { data: mentionComments } = await supabase.from('comments')
+        .select('*, user:user_id(*)')
+        .like('content', `%@${currentUser.username}%`)
+        .order('created_at', { ascending: false })
+        .limit(10)
 
       // Latest shares
       const { data: sharePosts } = await supabase.from('posts')
@@ -152,11 +147,31 @@ function TopNavActions({ currentUser }: { currentUser: any }) {
          })
       }
 
+      // Latest Messages for Tray
+      const { data: latestMsgs } = await supabase.from('messages')
+        .select('*, sender:sender_id(*)')
+        .eq('receiver_id', currentUser.id)
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      const uniqueMsgs: any[] = []
+      const seenSenders = new Set()
+      if (latestMsgs) {
+         for (const msg of latestMsgs) {
+           if (!seenSenders.has(msg.sender_id)) {
+             seenSenders.add(msg.sender_id)
+             uniqueMsgs.push(msg)
+           }
+         }
+      }
+      setLatestMessages(uniqueMsgs.slice(0, 5))
+
       const combined = [
         ...(newFollows || []).map(f => ({ type: 'follow', data: f, date: new Date(f.created_at).getTime() })),
         ...newShows.map(s => ({ type: 'show', data: s, date: new Date(s.created_at).getTime() })),
         ...newLikes.map(l => ({ type: 'like', data: l, date: new Date(l.created_at).getTime() })),
         ...newComments.map(c => ({ type: 'comment', data: c, date: new Date(c.created_at).getTime() })),
+        ...(mentionComments || []).map(m => ({ type: 'mention', data: m, date: new Date(m.created_at).getTime() })),
         ...newShares.map(s => ({ type: 'share', data: s, date: new Date(s.created_at).getTime() }))
       ].sort((a, b) => b.date - a.date).slice(0, 15)
 
@@ -209,6 +224,7 @@ function TopNavActions({ currentUser }: { currentUser: any }) {
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (bellRef.current && !bellRef.current.contains(event.target as Node)) setIsBellOpen(false)
+      if (messageTrayRef.current && !messageTrayRef.current.contains(event.target as Node)) setIsMessageTrayOpen(false)
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -216,9 +232,20 @@ function TopNavActions({ currentUser }: { currentUser: any }) {
 
   const handleOpenBell = () => {
     setIsBellOpen(!isBellOpen)
+    setIsMessageTrayOpen(false)
     if (!isBellOpen) {
       setUnreadNotifications(0)
       localStorage.setItem('last_viewed_notifications', Date.now().toString())
+    }
+  }
+
+  const handleOpenMessageTray = () => {
+    setIsMessageTrayOpen(!isMessageTrayOpen)
+    setIsBellOpen(false)
+    if (!isMessageTrayOpen && currentUser) {
+      setUnreadMessages(0)
+      const supabase = createClient()
+      supabase.from('messages').update({ is_read: true }).eq('receiver_id', currentUser.id).eq('is_read', false).then()
     }
   }
 
@@ -256,6 +283,9 @@ function TopNavActions({ currentUser }: { currentUser: any }) {
                     {n.type === 'comment' && (
                       <div className="text-sm"><span className="font-semibold text-foreground">{n.data.user.full_name}</span> commented on your {n.data.track_id ? 'track' : 'post'}.</div>
                     )}
+                    {n.type === 'mention' && (
+                      <div className="text-sm"><span className="font-semibold text-foreground">{n.data.user.full_name}</span> mentioned you in a comment.</div>
+                    )}
                     {n.type === 'share' && (
                       <div className="text-sm"><span className="font-semibold text-foreground">{n.data.user.full_name}</span> shared your content.</div>
                     )}
@@ -270,8 +300,8 @@ function TopNavActions({ currentUser }: { currentUser: any }) {
         )}
       </div>
       
-      <Link href="/dashboard/messages">
-        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-foreground hover:bg-accent relative">
+      <div className="relative" ref={messageTrayRef}>
+        <Button variant="ghost" size="icon" onClick={handleOpenMessageTray} className="text-muted-foreground hover:text-foreground hover:bg-accent relative">
           <MessageSquare className="h-5 w-5" />
           {unreadMessages > 0 && (
             <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white border-2 border-background">
@@ -279,7 +309,34 @@ function TopNavActions({ currentUser }: { currentUser: any }) {
             </span>
           )}
         </Button>
-      </Link>
+        {isMessageTrayOpen && (
+          <div className="absolute right-0 mt-2 w-72 rounded-md shadow-lg bg-background border border-border py-2 z-50 overflow-hidden">
+            <div className="px-4 py-2 border-b border-border font-bold flex justify-between items-center">
+              Messages
+              <Link href="/dashboard/messages" onClick={() => setIsMessageTrayOpen(false)} className="text-xs text-primary hover:underline font-normal">View all</Link>
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {latestMessages.length === 0 ? (
+                <div className="px-4 py-6 text-center text-sm text-muted-foreground">No recent messages</div>
+              ) : (
+                latestMessages.map((msg, i) => (
+                  <Link key={i} href={`/dashboard/messages?user=${msg.sender.username}`} className="block px-4 py-3 hover:bg-muted transition border-b border-border/50 last:border-0" onClick={() => setIsMessageTrayOpen(false)}>
+                    <div className="flex gap-3 items-center">
+                       <div className="w-8 h-8 rounded-full bg-primary/20 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                         {msg.sender.avatar_url ? <img src={msg.sender.avatar_url} className="w-full h-full object-cover" /> : <span className="font-bold text-xs">{msg.sender.full_name.charAt(0)}</span>}
+                       </div>
+                       <div className="flex-1 min-w-0">
+                         <div className="text-sm font-semibold text-foreground truncate">{msg.sender.full_name}</div>
+                         <div className={`text-xs truncate ${!msg.is_read ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>{msg.content}</div>
+                       </div>
+                    </div>
+                  </Link>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -279,6 +279,10 @@ CREATE POLICY "Messages are readable by participants" ON messages
 CREATE POLICY "Users can send messages" ON messages
   FOR INSERT WITH CHECK (auth.uid() = sender_id);
 
+-- Users can update received messages (to mark as read)
+CREATE POLICY "Users can update received messages" ON messages
+  FOR UPDATE USING (auth.uid() = receiver_id);
+
 -- Shows are readable by everyone
 CREATE POLICY "Shows are readable by everyone" ON shows
   FOR SELECT USING (true);

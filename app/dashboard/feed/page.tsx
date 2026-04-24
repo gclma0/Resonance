@@ -53,6 +53,14 @@ export default function FeedPage() {
   const [shareItem, setShareItem] = useState<any>(null)
   const [shareThought, setShareThought] = useState('')
   const [isSharing, setIsSharing] = useState(false)
+  const [sharedMap, setSharedMap] = useState<Record<string, any>>({})
+
+  const handleReply = (id: string, authorName: string) => {
+    setCommentState(prev => ({
+      ...prev,
+      [id]: { ...prev[id], text: `@${authorName} ` }
+    }))
+  }
 
   const toggleComments = async (id: string, isDummy: boolean, dbId?: string, type?: string) => {
     const item = feedItems.find(i => i.id === id)
@@ -265,6 +273,34 @@ export default function FeedPage() {
 
     unifiedArray.sort((a, b) => b.timestampRaw - a.timestampRaw)
     setFeedItems(unifiedArray)
+
+    // Fetch original content for shares
+    const sharedIds = new Set<string>()
+    unifiedArray.forEach(i => {
+      if (i.content) {
+        const match = i.content.match(/\[SHARE:(post|music|show):([^\]]+)\]/)
+        if (match) sharedIds.add(match[2])
+      }
+    })
+
+    const isUUID = (str: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str)
+    const uuidsToFetch = Array.from(sharedIds).filter(isUUID)
+    
+    if (uuidsToFetch.length > 0) {
+       const newSharedMap: Record<string, any> = {}
+       const [postsRes, tracksRes, showsRes] = await Promise.all([
+         supabase.from('posts').select('id, content, image_url, author:users(full_name)').in('id', uuidsToFetch),
+         supabase.from('music_tracks').select('id, title, author:users(full_name)').in('id', uuidsToFetch),
+         supabase.from('shows').select('id, title, artist:users(full_name)').in('id', uuidsToFetch)
+       ])
+
+       postsRes.data?.forEach((p: any) => newSharedMap[p.id] = { content: p.content, author: p.author?.full_name, img: p.image_url })
+       tracksRes.data?.forEach((t: any) => newSharedMap[t.id] = { title: t.title, author: t.author?.full_name })
+       showsRes.data?.forEach((s: any) => newSharedMap[s.id] = { title: s.title, author: s.artist?.full_name })
+       
+       setSharedMap(newSharedMap)
+    }
+
     setLoading(false)
   }, [])
 
@@ -490,7 +526,19 @@ export default function FeedPage() {
                           {sharedInfo && (
                             <div className="border border-primary/20 rounded-xl p-4 bg-primary/5 mb-4 shadow-inner">
                               <p className="text-xs text-primary font-bold mb-2 flex items-center gap-2 uppercase tracking-wide"><Share2 className="w-3.5 h-3.5"/> Reshared {sharedInfo.type}</p>
-                              <p className="text-sm font-medium text-foreground">Click to view the original content.</p>
+                              {sharedMap[sharedInfo.id] ? (
+                                <div>
+                                  <p className="text-xs text-muted-foreground font-semibold mb-1">Original by {sharedMap[sharedInfo.id].author}</p>
+                                  <p className="text-sm font-medium text-foreground line-clamp-3">
+                                    {sharedMap[sharedInfo.id].content || sharedMap[sharedInfo.id].title}
+                                  </p>
+                                  {sharedMap[sharedInfo.id].img && (
+                                    <img src={sharedMap[sharedInfo.id].img} className="w-full max-h-40 object-cover rounded-lg mt-2" />
+                                  )}
+                                </div>
+                              ) : (
+                                <p className="text-sm font-medium text-foreground">Loading original content...</p>
+                              )}
                             </div>
                           )}
                           {item.imageUrl && (
@@ -626,9 +674,12 @@ export default function FeedPage() {
                                     <div className="flex-1">
                                       <div className="bg-background border border-border shadow-sm rounded-2xl rounded-tl-sm px-4 py-2.5 inline-block max-w-[90%]">
                                         <span className="font-bold text-sm text-foreground block mb-0.5">{c.author}</span>
-                                        <span className="text-foreground/90 text-sm leading-relaxed">{c.text}</span>
+                                        <span className="text-foreground/90 text-sm leading-relaxed whitespace-pre-wrap">{c.text}</span>
                                       </div>
-                                      <p className="text-[11px] font-medium text-muted-foreground mt-1.5 ml-1">{c.ts}</p>
+                                      <div className="flex items-center gap-3 mt-1.5 ml-1">
+                                        <p className="text-[11px] font-medium text-muted-foreground">{c.ts}</p>
+                                        <button onClick={() => handleReply(item.id, c.author.replace(/\s+/g, ''))} className="text-[11px] font-bold text-muted-foreground hover:text-primary transition">Reply</button>
+                                      </div>
                                     </div>
                                   </div>
                                 ))}
